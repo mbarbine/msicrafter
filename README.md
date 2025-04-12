@@ -111,3 +111,45 @@ Then execute:
 - Structured logging + error recovery
 - Fun retro progress/status UI
 ```
+
+
+
+## REGRESSION
+
+How to Test This Milestone
+Tidy and Build:
+Run:
+
+bash
+Copy
+go mod tidy
+go build -o msicrafter.exe
+List Tables:
+
+
+./msicrafter.exe tables "C:\Path\To\YourSample.msi"
+
+Query MSI:
+
+
+./msicrafter.exe query "C:\Path\To\YourSample.msi" --q "SELECT * FROM Property"
+
+Edit a Table:
+
+
+./msicrafter.exe edit "C:\Path\To\YourSample.msi" --table Property --set ProductVersion=9.9.9,Author=RetroWizard
+
+Generate a Transform:
+
+
+./msicrafter.exe transform --original "C:\Path\To\Original.msi" --modified "C:\Path\To\Modified.msi" --output "C:\Path\To\patch.mst"
+
+Compare Two MSI Files:
+
+./msicrafter.exe diff "C:\Path\To\Original.msi" "C:\Path\To\Modified.msi"
+
+Export Tables and Zip:
+
+
+./msicrafter.exe export "C:\Path\To\YourSample.msi" --format csv --output "C:\Path\To\export.zip"
+

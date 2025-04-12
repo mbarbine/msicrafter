@@ -1,17 +1,30 @@
-msicrafter/
-├── main.go
-├── core/
-│   ├── msi_reader.go        # Table listing, query, schema reading
-│   ├── msi_editor.go        # Editing records, validations
-│   ├── msi_transform.go     # Create transform from snapshot
-│   ├── msi_diff.go          # Patch comparison between MSIs
-│   ├── msi_export.go        # Table exporter (JSON, CSV) and ZIP
-│   └── error_handler.go     # Wrapper functions for recovery/logging
-├── retro/
-│   ├── screen.go            # Retro ANSI layout and screen drawing
-│   ├── colors.go            # Terminal color and effect helpers
-├── cli/
-│   ├── commands.go          # Entry CLI logic
-├── assets/
-│   ├── splash.txt           # ASCII art splash screen
-├── go.mod
+// main.go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/urfave/cli/v2"
+	"msicrafter/cli"
+	"msicrafter/retro"
+)
+
+func main() {
+	// Display a retro splash screen
+	retro.ShowSplash()
+
+	// Setup CLI app with commands.
+	app := &cli.App{
+		Name:  "msicrafter",
+		Usage: "Retro-powered MSI table editor & transform tool",
+		Commands: []*cli.Command{
+			cli.ListTablesCommand,
+			cli.QueryCommand,
+		},
+	}
+
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
+}

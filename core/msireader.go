@@ -3,10 +3,12 @@ package core
 
 import (
 	"fmt"
+
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
 )
 
+// ListTables opens the MSI database at msiPath and prints the names of all tables.
 func ListTables(msiPath string) error {
 	if err := ole.CoInitialize(0); err != nil {
 		return fmt.Errorf("failed to initialize COM: %v", err)
@@ -17,7 +19,10 @@ func ListTables(msiPath string) error {
 	if err != nil {
 		return fmt.Errorf("COM object error: %v", err)
 	}
-	inst, _ := obj.QueryInterface(ole.IID_IDispatch)
+	inst, err := obj.QueryInterface(ole.IID_IDispatch)
+	if err != nil {
+		return fmt.Errorf("QueryInterface error: %v", err)
+	}
 	defer inst.Release()
 
 	db, err := oleutil.CallMethod(inst, "OpenDatabase", msiPath, 0)
