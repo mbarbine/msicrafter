@@ -5,39 +5,46 @@ import (
 	"log"
 	"os"
 
-	"github.com/urfave/cli/v2"
-	"msicrafter/cli"
+	urfavecli "github.com/urfave/cli/v2" // alias for external CLI package
+	mcli "msicrafter/cli"              // alias for your local cli package
+	"msicrafter/core"
 	"msicrafter/retro"
 )
 
-var debugEnabled bool
+var (
+	version   = "dev"    // default version; override with ldflags during build if needed
+	buildDate = "4112025"
+)
 
 func main() {
+	// Display the splash screen. (Note: retro.ShowSplash now takes no arguments)
 	retro.ShowSplash()
+	log.Printf("msicrafter version: %s", version)
 
-	app := &cli.App{
-		Name:  "msicrafter",
-		Usage: "Retro-powered MSI table editor & transform tool",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
+	app := &urfavecli.App{
+		Name:    "msicrafter",
+		Version: version,
+		Usage:   "Retro-powered MSI table editor & transform tool",
+		Flags: []urfavecli.Flag{
+			&urfavecli.BoolFlag{
 				Name:  "debug",
 				Usage: "Enable verbose debug logging",
 			},
 		},
-		Before: func(c *cli.Context) error {
-			debugEnabled = c.Bool("debug")
-			if debugEnabled {
+		Before: func(c *urfavecli.Context) error {
+			core.DebugMode = c.Bool("debug")
+			if core.DebugMode {
 				log.SetFlags(log.LstdFlags | log.Lshortfile)
 				log.Println("[DEBUG] Debug mode enabled.")
 			} else {
-				log.SetFlags(0)
+				log.SetFlags(log.LstdFlags)
 			}
 			return nil
 		},
-		Commands: cli.Commands,
+		Commands: mcli.Commands, // use commands from your local cli package
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		log.Fatalf("[FATAL] %v", err)
 	}
 }

@@ -3,70 +3,76 @@ package core
 
 import (
 	"errors"
-	"log"
-	"time"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 )
 
+// DebugMode toggles verbose logging. Set in main() via a flag.
+var DebugMode bool = false
+
+// transientErrors defines known retryable COM-related errors.
+// These should be updated based on real-world testing.
 var transientErrors = []string{
-	"RPC_E_SERVERFAULT", // example error codes/messages
+	"RPC_E_SERVERFAULT",
 	"RPC_E_DISCONNECTED",
-	// add more as needed
+	"RPC_S_CALL_FAILED",
+	"RPC_E_CALL_REJECTED",
 }
 
-// SafeExecuteWithRetry extends SafeExecute to retry up to `maxRetries` times if a known transient error occurs.
-func SafeExecuteWithRetry(operation string, maxRetries int, f func() error) (errRet error) {
-	var attempt int
-	for attempt = 1; attempt <= maxRetries; attempt++ {
-		err := SafeExecute(operation, f)
-		if err == nil {
-			return nil
-		}
-		// Check if it's transient
-		if isTransientError(err) && attempt < maxRetries {
-			log.Printf("[WARN] %s: Transient error detected, retrying (attempt %d/%d)...", operation, attempt, maxRetries)
-			time.Sleep(2 * time.Second) // backoff
-			continue
-		}
-		return err
-	}
-	return errors.New("exceeded max retries")
-}
+// SafeExecute wraps a function call with panic recovery and logging.
+// It logs the operation and any error returned or panic recovered.
 func SafeExecute(operation string, f func() error) (errRet error) {
 	defer func() {
 		if r := recover(); r != nil {
-			errRet = fmt.Errorf("[ERROR] %s: Recovered from panic: %v", operation, r)
-			log.Printf("[ERROR] %s: Recovered from panic: %v", operation, r)
+			errRet = fmt.Errorf("[PANIC] %s: %v", operation, r)
+			log.Printf("[PANIC] %s: %v", operation, r)
 		}
 	}()
+	if DebugMode {
+		log.Printf("[DEBUG] Starting operation: %s", operation)
+	}
 	if err := f(); err != nil {
 		log.Printf("[ERROR] %s: %v", operation, err)
 		return err
 	}
+	if DebugMode {
+		log.Printf("[DEBUG] Completed operation: %s", operation)
+	}
 	return nil
 }
 
+// SafeExecuteWithRetry executes a function with panic protection and transient error retry.
+// It retries transient errors (based on substring match) up to `maxRetries` times.
+func SafeExecuteWithRetry(operation string, maxRetries int, f func() error) (errRet error) {
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err := SafeExecute(operation, f)
+		if err == nil {
+			return nil
+		}
+		if isTransientError(err) && attempt < maxRetries {
+			log.Printf("[WARN] %s: Transient error, retrying (%d/%d)...", operation, attempt, maxRetries)
+			time.Sleep(2 * time.Second) // exponential backoff could go here
+			continue
+		}
+		return err
+	}
+	return errors.New("exceeded max retries for operation: " + operation)
+}
+
+// isTransientError checks if the error string contains a known transient substring.
 func isTransientError(err error) bool {
-	for _, e := range transientErrors {
-		if e != "" && ContainsIgnoreCase(err.Error(), e) {
+	msg := strings.ToUpper(err.Error())
+	for _, token := range transientErrors {
+		if strings.Contains(msg, token) {
 			return true
 		}
 	}
 	return false
 }
 
-// ContainsIgnoreCase checks if `substr` is in `str`, ignoring case.
+// ContainsIgnoreCase returns true if substr is found in str (case-insensitive).
 func ContainsIgnoreCase(str, substr string) bool {
-	return len(str) > 0 && len(substr) > 0 && 
-		len(str) >= len(substr) && 
-		// naive approach: strings.ToLower() for both
-		// or advanced approach: do partial case-insensitive match
-		// For demonstration, we do:
-		contains(strings.ToLower(str), strings.ToLower(substr))
-}
-
-// implement a helper
-func contains(s, sub string) bool {
-	return len(s) > 0 && len(sub) > 0 && strings.Contains(s, sub)
+	return strings.Contains(strings.ToLower(str), strings.ToLower(substr))
 }

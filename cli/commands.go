@@ -213,6 +213,7 @@ var ApplyTransformCommand = &cli.Command{
 		})
 	},
 }
+
 // ListRecordsCommand lists the records of a specified table in an MSI database.
 var ListRecordsCommand = &cli.Command{
 	Name:  "list-records",
@@ -224,20 +225,19 @@ var ListRecordsCommand = &cli.Command{
 			Required: true,
 		},
 	},
-
 	Action: func(c *cli.Context) error {
-		return SafeExecute("ListRecords", func() error {
+		return core.SafeExecute("ListRecords", func() error {
 			if c.Args().Len() == 0 {
 				return fmt.Errorf("provide path to MSI file")
 			}
 			msiPath := c.Args().Get(0)
 			tableName := c.String("table")
-			rows, err := ReadTableRows(msiPath, tableName)
+			rows, err := core.ReadTableRows(msiPath, tableName)
 			if err != nil {
 				return err
 			}
 			fmt.Println("Records in table", tableName)
-			fmt.Println(FormatRows(rows))
+			fmt.Println(core.FormatRows(rows))
 			return nil
 		})
 	},
@@ -288,7 +288,7 @@ var EditRecordCommand = &cli.Command{
 	},
 }
 
-// Append the new command to the commands list.
+// Commands is the consolidated slice of all CLI commands.
 var Commands = []*cli.Command{
 	ListTablesCommand,
 	QueryCommand,
@@ -299,5 +299,5 @@ var Commands = []*cli.Command{
 	BackupCommand,
 	ApplyTransformCommand,
 	ListRecordsCommand,
-	EditRecordCommand, // <-- New record-level editing command.
+	EditRecordCommand, // New record-level editing command.
 }
