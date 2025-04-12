@@ -7,9 +7,6 @@ import (
 	"log"
 	"os"
 	"strings"
-
-	"strconv"
-
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
 	"msicrafter/retro"

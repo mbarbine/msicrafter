@@ -9,11 +9,6 @@ import (
 )
 
 // TableRow represents a single record from an MSI table,
-// storing data as a slice of strings for each column.
-type TableRow struct {
-	Columns []string
-}
-
 // ReadTable reads all rows from the specified table in an MSI database
 // and returns them as a slice of TableRow.
 func ReadTable(msiPath, tableName string) ([]TableRow, error) {
