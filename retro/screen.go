@@ -9,9 +9,9 @@ import (
 func ShowSplash() {
 	showPHEAR()
 	time.Sleep(1000 * time.Millisecond)
-	showXCRAFT()
-	time.Sleep(800 * time.Millisecond)
-	fmt.Fprintln(os.Stdout, "\n   Like Orca, but cooler 🕹️")
+//	showXCRAFT()
+//	time.Sleep(800 * time.Millisecond)
+	fmt.Fprintln(os.Stdout, "\n   Customize your apps, but cooler 🕹️")
 }
 
 func showPHEAR() {

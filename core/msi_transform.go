@@ -9,14 +9,7 @@ import (
 
 // GenerateTransform analyzes differences between the original and modified MSI
 // on a per-table basis, then produces a naive .mst transform file capturing changes.
-// This is still a simplified approach to demonstrate real diffing.
 func GenerateTransform(originalMSI, modifiedMSI, outputTransform string) error {
-	// For demonstration, we'll:
-	// 1. Enumerate the tables in both MSIs.
-	// 2. For each table, read row data from both MSIs.
-	// 3. Compare row sets to find added/removed/changed rows.
-	// 4. Write a simple MST that attempts to reflect these differences.
-
 	// Step 0: Validate existence of input files.
 	if _, err := os.Stat(originalMSI); os.IsNotExist(err) {
 		return fmt.Errorf("original MSI not found: %s", originalMSI)
@@ -25,7 +18,7 @@ func GenerateTransform(originalMSI, modifiedMSI, outputTransform string) error {
 		return fmt.Errorf("modified MSI not found: %s", modifiedMSI)
 	}
 
-	// Step 1: Gather table names in each MSI.
+	// Step 1: Gather table names from both MSIs.
 	origTables, err := getTables(originalMSI)
 	if err != nil {
 		return fmt.Errorf("failed to list tables in original: %v", err)
@@ -48,23 +41,26 @@ func GenerateTransform(originalMSI, modifiedMSI, outputTransform string) error {
 		allTables = append(allTables, t)
 	}
 
-	// Step 2: For each table, read row data from both MSIs and detect diffs.
+	// Step 2: Compare rows per table.
 	var differences []string
 	for _, table := range allTables {
-		oRows, _ := ReadTable(originalMSI, table)
-		mRows, _ := ReadTable(modifiedMSI, table)
+		origRows, err1 := ReadTableRows(originalMSI, table)
+		modRows, err2 := ReadTableRows(modifiedMSI, table)
 
-		// We do a naive row-by-row string comparison.
-		rowDiff := compareTableRows(table, oRows, mRows)
+		if err1 != nil && err2 != nil {
+			// Skip table if unreadable in both
+			continue
+		}
+
+		rowDiff := compareTableRows(table, origRows, modRows)
 		if rowDiff != "" {
 			differences = append(differences, rowDiff)
 		}
 	}
 
-	// Step 3: Write out an MST file with these differences.
-	// For demonstration, we store the differences in plain text.
+	// Step 3: Save transform (mocked as diff file).
 	if err := writeMSTStub(differences, outputTransform); err != nil {
-		return err
+		return fmt.Errorf("failed to write transform file: %v", err)
 	}
 
 	return nil
@@ -74,7 +70,7 @@ func GenerateTransform(originalMSI, modifiedMSI, outputTransform string) error {
 func compareTableRows(table string, orig, mod []TableRow) string {
 	var sb strings.Builder
 
-	// Convert slices to maps keyed by a joined string of all columns (very naive).
+	// Naively join column values to compare rows.
 	origMap := make(map[string]bool)
 	for _, row := range orig {
 		key := strings.Join(row.Columns, "|")
@@ -99,14 +95,11 @@ func compareTableRows(table string, orig, mod []TableRow) string {
 			sb.WriteString(fmt.Sprintf("- %s => %s\n", table, key))
 		}
 	}
-	if sb.Len() == 0 {
-		return ""
-	}
 	return sb.String()
 }
 
-// writeMSTStub just writes the diff lines to the .mst file for demonstration.
-// A real MST has a specific binary structure, typically generated via Windows Installer APIs.
+// writeMSTStub writes the textual diff to a .mst file as a demonstration.
+// A real MST would use the Windows Installer APIs to generate binary output.
 func writeMSTStub(differences []string, mstPath string) error {
 	f, err := os.Create(mstPath)
 	if err != nil {
@@ -122,7 +115,7 @@ func writeMSTStub(differences []string, mstPath string) error {
 	return nil
 }
 
-// getTables is a helper to enumerate table names in a given MSI.
+// getTables retrieves a list of table names from an MSI.
 func getTables(msiPath string) ([]string, error) {
 	tables, err := ListAllTables(msiPath)
 	if err != nil {
@@ -131,18 +124,29 @@ func getTables(msiPath string) ([]string, error) {
 	return tables, nil
 }
 
-// ListAllTables is a variation of ListTables that returns a slice instead of printing to stdout.
+// ListAllTables reads the internal _Tables table and returns table names.
 func ListAllTables(msiPath string) ([]string, error) {
-	tableNames := []string{}
+	var tableNames []string
 
-	mTables, err := ReadTable(msiPath, "_Tables")
-	if err != nil {
-		// If there's an error reading _Tables, we have no fallback
-		return tableNames, err
+	if DebugMode {
+		fmt.Printf("[DEBUG] Attempting to read '_Tables' from %s...\n", msiPath)
 	}
-	for _, row := range mTables {
+
+	rows, err := ReadTableRows(msiPath, "_Tables")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read _Tables: %v", err)
+	}
+
+	if DebugMode {
+		fmt.Printf("[DEBUG] _Tables returned %d rows\n", len(rows))
+	}
+
+	for _, row := range rows {
 		if len(row.Columns) > 0 && row.Columns[0] != "" {
 			tableNames = append(tableNames, row.Columns[0])
+			if DebugMode {
+				fmt.Printf("[DEBUG] Found table: %s\n", row.Columns[0])
+			}
 		}
 	}
 	return tableNames, nil
