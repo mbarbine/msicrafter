@@ -29,15 +29,19 @@ func CompareMSI(msi1, msi2 string) error {
 			return fmt.Errorf("failed to list tables in MSI2: %v", err)
 		}
 
+		// Convert discoveredTable slices to slices of names.
+		names1 := discoveredTablesToNames(tables1)
+		names2 := discoveredTablesToNames(tables2)
+
 		fmt.Println("Table differences:")
 		for _, t := range tables1 {
-			if !contains(tables2, t) {
-				fmt.Printf("Table '%s' in MSI1 but not MSI2\n", t)
+			if !contains(names2, t.Name) {
+				fmt.Printf("Table '%s' in MSI1 but not MSI2\n", t.Name)
 			}
 		}
 		for _, t := range tables2 {
-			if !contains(tables1, t) {
-				fmt.Printf("Table '%s' in MSI2 but not MSI1\n", t)
+			if !contains(names1, t.Name) {
+				fmt.Printf("Table '%s' in MSI2 but not MSI1\n", t.Name)
 			}
 		}
 		return nil
@@ -52,6 +56,7 @@ func GenerateTransform(originalMSI, modifiedMSI, outputMST string) error {
 	})
 }
 
+// contains returns true if the given slice contains the specified item.
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
@@ -59,4 +64,13 @@ func contains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+// discoveredTablesToNames converts a slice of discoveredTable to a slice of table name strings.
+func discoveredTablesToNames(tables []discoveredTable) []string {
+	names := make([]string, 0, len(tables))
+	for _, dt := range tables {
+		names = append(names, dt.Name)
+	}
+	return names
 }

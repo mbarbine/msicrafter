@@ -3,12 +3,22 @@ package core
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
+
+// Remove unused import "encoding/json" if not required.
 
 // TableRow represents a single row from an MSI table.
 type TableRow struct {
 	Columns []string
+}
+
+// discoveredTable holds a table name along with the method/source
+// it was discovered from.
+type discoveredTable struct {
+	Name   string
+	Source string
 }
 
 // ListTables discovers and prints table names from an MSI file.
@@ -20,9 +30,10 @@ func ListTables(msiPath string) error {
 		}
 		defer session.Close()
 
-		tables, err := discoverTables(session)
+		results, err := discoverTables(session)
 		fmt.Println("📦 Tables in", msiPath)
-		if err != nil || len(tables) == 0 {
+
+		if err != nil || len(results) == 0 {
 			fmt.Println("   ⚠ No tables found — MSI may be empty, encrypted, or restricted.")
 			if DebugMode && err != nil {
 				logWarn(fmt.Sprintf("discoverTables error: %v", err))
@@ -30,14 +41,36 @@ func ListTables(msiPath string) error {
 			return nil
 		}
 
-		for _, table := range tables {
-			fmt.Println("   └─", table)
+		// Build a map for unique table names and count how many came from each method.
+		summary := map[string]int{}
+		tableMap := map[string]string{}
+		for _, t := range results {
+			tableMap[t.Name] = t.Source
+			summary[t.Source]++
+		}
+
+		var deduped []string
+		for table := range tableMap {
+			deduped = append(deduped, table)
+		}
+		sort.Strings(deduped)
+
+		for _, table := range deduped {
+			fmt.Printf("   └─ %-30s [via %s]\n", table, tableMap[table])
+		}
+
+		if DebugMode {
+			fmt.Println("\n🔍 Discovery Summary:")
+			for source, count := range summary {
+				fmt.Printf("   %-20s → %d tables\n", source, count)
+			}
 		}
 		return nil
 	})
 }
 
 // ReadTableRows reads all rows from a specified MSI table.
+// This function is used by other components (e.g. record editing).
 func ReadTableRows(msiPath, tableName string) ([]TableRow, error) {
 	var rows []TableRow
 	err := SafeExecuteWithRetry("ReadTableRows", 3, func() error {
@@ -60,16 +93,6 @@ func ReadTableRows(msiPath, tableName string) ([]TableRow, error) {
 	return rows, nil
 }
 
-// GetColumnNames retrieves column names for a table.
-func GetColumnNames(msiPath, tableName string) ([]string, error) {
-	session, err := OpenMsiSession(msiPath, 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open MSI session: %v", err)
-	}
-	defer session.Close()
-	return session.GetColumnNames(tableName)
-}
-
 // FormatRows neatly formats table rows into a readable string.
 func FormatRows(rows []TableRow) string {
 	var sb strings.Builder
@@ -80,40 +103,46 @@ func FormatRows(rows []TableRow) string {
 }
 
 // discoverTables tries multiple methods to locate table names.
-func discoverTables(session *MsiSession) ([]string, error) {
+func discoverTables(session *MsiSession) ([]discoveredTable, error) {
 	methods := []struct {
-		name string
-		fn   func(*MsiSession) ([]string, error)
+		Name string
+		Exec func(*MsiSession) ([]string, error)
 	}{
-		{"_Tables System Table", tryListSystemTables},
-		{"_Columns Distinct", tryListColumnsDistinct},
-		{"Brute Force", tryListBruteForce},
+		{"_Tables", tryListSystemTables},
+		{"_Columns", tryListColumnsDistinct},
+		{"BruteForce", tryListBruteForce},
 	}
 
-	var combinedErrors []string
+	var results []discoveredTable
+	var errors []string
 	for _, method := range methods {
-		var tables []string
-		err := SafeExecute(fmt.Sprintf("DiscoverTables(%s)", method.name), func() error {
-			var err error
-			tables, err = method.fn(session)
-			if err != nil {
-				return err
-			}
-			return nil
+		var names []string
+		err := SafeExecute("DiscoverVia::"+method.Name, func() error {
+			var e error
+			names, e = method.Exec(session)
+			return e
 		})
-		if err == nil && len(tables) > 0 {
-			if DebugMode {
-				logInfo(fmt.Sprintf("Discovered tables via '%s'", method.name))
+
+		if err == nil && len(names) > 0 {
+			for _, name := range names {
+				results = append(results, discoveredTable{Name: name, Source: method.Name})
 			}
-			return tables, nil
+			if DebugMode {
+				logInfo(fmt.Sprintf("✅ Tables found using '%s': %d", method.Name, len(names)))
+			}
+		} else {
+			msg := fmt.Sprintf("[%s] %v", method.Name, err)
+			if DebugMode {
+				logWarn(msg)
+			}
+			errors = append(errors, msg)
 		}
-		if err != nil && DebugMode {
-			logWarn(fmt.Sprintf("Discovery method '%s' failed: %v", method.name, err))
-		}
-		combinedErrors = append(combinedErrors, fmt.Sprintf("%s: %v", method.name, err))
 	}
 
-	return nil, fmt.Errorf("table discovery failed:\n%s", strings.Join(combinedErrors, "\n"))
+	if len(results) == 0 {
+		return nil, fmt.Errorf("table discovery failed:\n%s", strings.Join(errors, "\n"))
+	}
+	return results, nil
 }
 
 // tryListSystemTables queries the _Tables table.
@@ -122,16 +151,7 @@ func tryListSystemTables(session *MsiSession) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query _Tables: %v", err)
 	}
-	var tables []string
-	for _, row := range rows {
-		if len(row.Columns) > 0 && row.Columns[0] != "" {
-			tables = append(tables, row.Columns[0])
-		}
-	}
-	if len(tables) == 0 {
-		return nil, fmt.Errorf("_Tables is empty")
-	}
-	return tables, nil
+	return extractFirstColumn(rows, "_Tables")
 }
 
 // tryListColumnsDistinct queries distinct table names from _Columns.
@@ -140,38 +160,58 @@ func tryListColumnsDistinct(session *MsiSession) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query _Columns: %v", err)
 	}
-	var tables []string
-	for _, row := range rows {
-		if len(row.Columns) > 0 && row.Columns[0] != "" {
-			tables = append(tables, row.Columns[0])
-		}
-	}
-	if len(tables) == 0 {
-		return nil, fmt.Errorf("_Columns has no valid tables")
-	}
-	return tables, nil
+	return extractFirstColumn(rows, "_Columns")
 }
 
 // tryListBruteForce checks common tables directly.
 func tryListBruteForce(session *MsiSession) ([]string, error) {
-	commonTables := []string{
+	common := []string{
 		"Property", "Directory", "Feature", "Component",
 		"File", "Binary", "Media", "Registry",
+		"Shortcut", "CustomAction", "InstallExecuteSequence",
 	}
 	var found []string
-	for _, table := range commonTables {
-		rows, err := session.ExecuteQuery(fmt.Sprintf("SELECT * FROM `%s`", table))
+	for _, t := range common {
+		rows, err := session.ExecuteQuery(fmt.Sprintf("SELECT * FROM `%s`", t))
 		if err == nil && len(rows) > 0 {
-			found = append(found, table)
+			found = append(found, t)
 			if DebugMode {
-				logInfo(fmt.Sprintf("BruteForce: Found table '%s'", table))
+				logInfo(fmt.Sprintf("BruteForce → found '%s'", t))
 			}
 		} else if DebugMode {
-			logWarn(fmt.Sprintf("BruteForce: Skipped table '%s': %v", table, err))
+			logWarn(fmt.Sprintf("BruteForce → skipped '%s': %v", t, err))
 		}
 	}
 	if len(found) == 0 {
 		return nil, fmt.Errorf("no common tables found")
 	}
 	return found, nil
+}
+
+// GetColumnNames retrieves column names for a table.
+func GetColumnNames(msiPath, tableName string) ([]string, error) {
+	session, err := OpenMsiSession(msiPath, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open MSI session: %v", err)
+	}
+	defer session.Close()
+	return session.GetColumnNames(tableName)
+}
+
+// extractFirstColumn returns the first column values from rows,
+// optionally filtering out entries that start with '_' or match known dummy tables.
+func extractFirstColumn(rows []TableRow, source string) ([]string, error) {
+	var out []string
+	for _, r := range rows {
+		if len(r.Columns) > 0 {
+			name := strings.TrimSpace(r.Columns[0])
+			if name != "" && !strings.HasPrefix(name, "_") && name != "MsiDigitalCertificate" {
+				out = append(out, name)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no tables found in %s", source)
+	}
+	return out, nil
 }
