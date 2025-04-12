@@ -52,3 +52,88 @@ func TestParseDiffLine_Invalid(t *testing.T) {
 		t.Errorf("Expected error for invalid line, got nil")
 	}
 }
+
+// ----------------------------------------------
+// New Tests for More Exhaustive Coverage
+// ----------------------------------------------
+
+func TestParseDiffLine_EmptyLine(t *testing.T) {
+	line := ""
+	_, _, _, err := parseDiffLine(line)
+	if err == nil {
+		t.Errorf("Expected error for empty line, got nil")
+	}
+}
+
+func TestParseDiffLine_WhitespaceLine(t *testing.T) {
+	line := "    "
+	_, _, _, err := parseDiffLine(line)
+	if err == nil {
+		t.Errorf("Expected error for whitespace line, got nil")
+	}
+}
+
+func TestParseDiffLine_MissingDelimiter(t *testing.T) {
+	// No "=>" part
+	line := "+ Property  ProductVersion|9.9.9"
+	_, _, _, err := parseDiffLine(line)
+	if err == nil {
+		t.Errorf("Expected error for missing '=>' delimiter, got nil")
+	}
+}
+
+func TestParseDiffLine_NoTableName(t *testing.T) {
+	line := "+  => ProductVersion|9.9.9"
+	_, _, values, err := parseDiffLine(line)
+	if err == nil {
+		t.Errorf("Expected error for missing table name, got nil")
+	}
+	if len(values) > 0 {
+		t.Errorf("Expected no values returned on error, got: %v", values)
+	}
+}
+
+func TestParseDiffLine_NoValues(t *testing.T) {
+	line := "+ Property => "
+	op, table, values, err := parseDiffLine(line)
+	if err != nil {
+		t.Fatalf("Did not expect a parse error, got: %v", err)
+	}
+	if op != "+" {
+		t.Errorf("Expected '+', got: %s", op)
+	}
+	if table != "Property" {
+		t.Errorf("Expected table 'Property', got: %s", table)
+	}
+	// No values means an empty slice
+	if len(values) != 0 {
+		t.Errorf("Expected 0 values, got: %v", values)
+	}
+}
+
+func TestParseDiffLine_InvalidOperation(t *testing.T) {
+	line := "* Property => SomeVal"
+	_, _, _, err := parseDiffLine(line)
+	if err == nil {
+		t.Errorf("Expected error for invalid operation '*', got nil")
+	}
+}
+
+func TestParseDiffLine_LeadingTrailingPipes(t *testing.T) {
+	line := "+ Property => |LeadingVal|TrailingVal|"
+	op, table, vals, err := parseDiffLine(line)
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if op != "+" {
+		t.Errorf("Expected '+', got: %s", op)
+	}
+	if table != "Property" {
+		t.Errorf("Expected 'Property', got: %s", table)
+	}
+	expected := []string{"", "LeadingVal", "TrailingVal", ""}
+	if !reflect.DeepEqual(vals, expected) {
+		t.Errorf("Expected %v, got %v", expected, vals)
+	}
+}
+

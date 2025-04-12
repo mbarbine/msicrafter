@@ -4,207 +4,174 @@ package core
 import (
 	"fmt"
 	"strings"
-
-	"github.com/go-ole/go-ole"
-	"github.com/go-ole/go-ole/oleutil"
 )
 
-// TableRow represents a single record (row) from an MSI table.
+// TableRow represents a single row from an MSI table.
 type TableRow struct {
 	Columns []string
 }
 
-// ListTables opens the MSI database at msiPath and prints the names of all tables.
+// ListTables discovers and prints table names from an MSI file.
 func ListTables(msiPath string) error {
-	// Initialize COM.
-	if err := ole.CoInitialize(0); err != nil {
-		return fmt.Errorf("failed to initialize COM: %v", err)
-	}
-	defer ole.CoUninitialize()
-
-	// Create the Windows Installer object.
-	obj, err := oleutil.CreateObject("WindowsInstaller.Installer")
-	if err != nil {
-		return fmt.Errorf("COM CreateObject error: %v", err)
-	}
-	defer obj.Release()
-
-	inst, err := obj.QueryInterface(ole.IID_IDispatch)
-	if err != nil {
-		return fmt.Errorf("QueryInterface error: %v", err)
-	}
-	defer inst.Release()
-
-	// Open the MSI in read-only mode.
-	dbResult, err := oleutil.CallMethod(inst, "OpenDatabase", msiPath, 0)
-	if err != nil {
-		return fmt.Errorf("OpenDatabase error: %v", err)
-	}
-	db := dbResult.ToIDispatch()
-	if db == nil {
-		return fmt.Errorf("OpenDatabase returned nil dispatch")
-	}
-	defer db.Release()
-
-	// Open a view to query the system table that holds all table names.
-	viewResult, err := oleutil.CallMethod(db, "OpenView", "SELECT * FROM `_Tables`")
-	if err != nil {
-		return fmt.Errorf("OpenView error (missing _Tables): %v", err)
-	}
-	view := viewResult.ToIDispatch()
-	if view == nil {
-		return fmt.Errorf("OpenView returned nil dispatch")
-	}
-	defer view.Release()
-
-	// Execute the query.
-	if _, err := oleutil.CallMethod(view, "Execute"); err != nil {
-		return fmt.Errorf("Execute view error: %v", err)
-	}
-
-	fmt.Println("📦 Tables in", msiPath)
-
-	foundAny := false
-	// Loop through records.
-	for {
-		recordResult, err := oleutil.CallMethod(view, "Fetch")
-		if err != nil || recordResult.Value() == nil {
-			break // End of records
+	return SafeExecute("ListTables", func() error {
+		session, err := OpenMsiSession(msiPath, 0)
+		if err != nil {
+			return fmt.Errorf("failed to open MSI session: %v", err)
 		}
-		record := recordResult.ToIDispatch()
-		if record == nil {
-			break
+		defer session.Close()
+
+		tables, err := discoverTables(session)
+		fmt.Println("📦 Tables in", msiPath)
+		if err != nil || len(tables) == 0 {
+			fmt.Println("   ⚠ No tables found — MSI may be empty, encrypted, or restricted.")
+			if DebugMode && err != nil {
+				logWarn(fmt.Sprintf("discoverTables error: %v", err))
+			}
+			return nil
 		}
 
-		// Fetch the table name from the first column.
-		tableNameVariant, err := oleutil.CallMethod(record, "StringData", 1)
-		if err == nil && tableNameVariant != nil {
-			name := tableNameVariant.ToString()
-			fmt.Println("   └─", name)
-			foundAny = true
+		for _, table := range tables {
+			fmt.Println("   └─", table)
 		}
-		record.Release()
-	}
-
-	if !foundAny {
-		fmt.Println("   ⚠ No tables found — MSI may be empty, encrypted, or invalid.")
-	}
-
-	return nil
+		return nil
+	})
 }
 
-// ReadTableRows reads all rows from the specified table in the MSI database.
+// ReadTableRows reads all rows from a specified MSI table.
 func ReadTableRows(msiPath, tableName string) ([]TableRow, error) {
-	if err := ole.CoInitialize(0); err != nil {
-		return nil, fmt.Errorf("failed to initialize COM: %v", err)
-	}
-	defer ole.CoUninitialize()
-
-	obj, err := oleutil.CreateObject("WindowsInstaller.Installer")
-	if err != nil {
-		return nil, fmt.Errorf("CreateObject error: %v", err)
-	}
-	defer obj.Release()
-
-	inst, err := obj.QueryInterface(ole.IID_IDispatch)
-	if err != nil {
-		return nil, fmt.Errorf("QueryInterface error: %v", err)
-	}
-	defer inst.Release()
-
-	dbResult, err := oleutil.CallMethod(inst, "OpenDatabase", msiPath, 0)
-	if err != nil {
-		return nil, fmt.Errorf("OpenDatabase error: %v", err)
-	}
-	db := dbResult.ToIDispatch()
-	if db == nil {
-		return nil, fmt.Errorf("OpenDatabase returned nil dispatch")
-	}
-	defer db.Release()
-
-	// Get number of columns using the helper.
-	colCount, err := getColumnCount(db, tableName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get column count: %v", err)
-	}
-
-	sql := fmt.Sprintf("SELECT * FROM `%s`", tableName)
-	viewResult, err := oleutil.CallMethod(db, "OpenView", sql)
-	if err != nil {
-		return nil, fmt.Errorf("OpenView error (ReadTable): %v", err)
-	}
-	view := viewResult.ToIDispatch()
-	if view == nil {
-		return nil, fmt.Errorf("OpenView returned nil dispatch")
-	}
-	defer view.Release()
-
-	if _, err := oleutil.CallMethod(view, "Execute", nil); err != nil {
-		return nil, fmt.Errorf("Execute error (ReadTable): %v", err)
-	}
-
 	var rows []TableRow
-	for {
-		recordResult, err := oleutil.CallMethod(view, "Fetch")
-		if err != nil || recordResult.Value() == nil {
-			break
+	err := SafeExecuteWithRetry("ReadTableRows", 3, func() error {
+		session, err := OpenMsiSession(msiPath, 0)
+		if err != nil {
+			return fmt.Errorf("failed to open MSI session: %v", err)
 		}
-		record := recordResult.ToIDispatch()
-		if record == nil {
-			break
+		defer session.Close()
+
+		sql := fmt.Sprintf("SELECT * FROM `%s`", tableName)
+		rows, err = session.ExecuteQuery(sql)
+		if err != nil {
+			return fmt.Errorf("failed to read table '%s': %v", tableName, err)
 		}
-		var cols []string
-		for i := 1; i <= colCount; i++ {
-			dataRaw, _ := oleutil.CallMethod(record, "StringData", i)
-			val := dataRaw.ToString()
-			cols = append(cols, val)
-		}
-		record.Release()
-		rows = append(rows, TableRow{Columns: cols})
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return rows, nil
 }
 
-// FormatRows returns a formatted string representing the rows in a tabular layout.
+// GetColumnNames retrieves column names for a table.
+func GetColumnNames(msiPath, tableName string) ([]string, error) {
+	session, err := OpenMsiSession(msiPath, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open MSI session: %v", err)
+	}
+	defer session.Close()
+	return session.GetColumnNames(tableName)
+}
+
+// FormatRows neatly formats table rows into a readable string.
 func FormatRows(rows []TableRow) string {
 	var sb strings.Builder
-	for i, row := range rows {
-		sb.WriteString(fmt.Sprintf("[%d] %s\n", i+1, strings.Join(row.Columns, " | ")))
+	for idx, row := range rows {
+		sb.WriteString(fmt.Sprintf("[%d] %s\n", idx+1, strings.Join(row.Columns, " | ")))
 	}
 	return sb.String()
 }
 
-// getColumnCount uses the _Columns system table to count columns for a given table.
-func getColumnCount(db *ole.IDispatch, tableName string) (int, error) {
-	query := fmt.Sprintf("SELECT * FROM `_Columns` WHERE `Table`='%s'", tableName)
-	viewResult, err := oleutil.CallMethod(db, "OpenView", query)
+// discoverTables tries multiple methods to locate table names.
+func discoverTables(session *MsiSession) ([]string, error) {
+	methods := []struct {
+		name string
+		fn   func(*MsiSession) ([]string, error)
+	}{
+		{"_Tables System Table", tryListSystemTables},
+		{"_Columns Distinct", tryListColumnsDistinct},
+		{"Brute Force", tryListBruteForce},
+	}
+
+	var combinedErrors []string
+	for _, method := range methods {
+		var tables []string
+		err := SafeExecute(fmt.Sprintf("DiscoverTables(%s)", method.name), func() error {
+			var err error
+			tables, err = method.fn(session)
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+		if err == nil && len(tables) > 0 {
+			if DebugMode {
+				logInfo(fmt.Sprintf("Discovered tables via '%s'", method.name))
+			}
+			return tables, nil
+		}
+		if err != nil && DebugMode {
+			logWarn(fmt.Sprintf("Discovery method '%s' failed: %v", method.name, err))
+		}
+		combinedErrors = append(combinedErrors, fmt.Sprintf("%s: %v", method.name, err))
+	}
+
+	return nil, fmt.Errorf("table discovery failed:\n%s", strings.Join(combinedErrors, "\n"))
+}
+
+// tryListSystemTables queries the _Tables table.
+func tryListSystemTables(session *MsiSession) ([]string, error) {
+	rows, err := session.ExecuteQuery("SELECT * FROM `_Tables`")
 	if err != nil {
-		return 0, fmt.Errorf("OpenView error for _Columns: %v", err)
+		return nil, fmt.Errorf("failed to query _Tables: %v", err)
 	}
-	view := viewResult.ToIDispatch()
-	if view == nil {
-		return 0, fmt.Errorf("OpenView returned nil dispatch for _Columns")
-	}
-	defer view.Release()
-
-	if _, err := oleutil.CallMethod(view, "Execute"); err != nil {
-		return 0, fmt.Errorf("Execute error for _Columns: %v", err)
-	}
-
-	var count int
-	for {
-		recordResult, err := oleutil.CallMethod(view, "Fetch")
-		if err != nil || recordResult.Value() == nil {
-			break
+	var tables []string
+	for _, row := range rows {
+		if len(row.Columns) > 0 && row.Columns[0] != "" {
+			tables = append(tables, row.Columns[0])
 		}
-		record := recordResult.ToIDispatch()
-		if record != nil {
-			record.Release()
+	}
+	if len(tables) == 0 {
+		return nil, fmt.Errorf("_Tables is empty")
+	}
+	return tables, nil
+}
+
+// tryListColumnsDistinct queries distinct table names from _Columns.
+func tryListColumnsDistinct(session *MsiSession) ([]string, error) {
+	rows, err := session.ExecuteQuery("SELECT DISTINCT `Table` FROM `_Columns`")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query _Columns: %v", err)
+	}
+	var tables []string
+	for _, row := range rows {
+		if len(row.Columns) > 0 && row.Columns[0] != "" {
+			tables = append(tables, row.Columns[0])
 		}
-		count++
 	}
-	if count == 0 {
-		return 0, fmt.Errorf("no columns found for table '%s'", tableName)
+	if len(tables) == 0 {
+		return nil, fmt.Errorf("_Columns has no valid tables")
 	}
-	return count, nil
+	return tables, nil
+}
+
+// tryListBruteForce checks common tables directly.
+func tryListBruteForce(session *MsiSession) ([]string, error) {
+	commonTables := []string{
+		"Property", "Directory", "Feature", "Component",
+		"File", "Binary", "Media", "Registry",
+	}
+	var found []string
+	for _, table := range commonTables {
+		rows, err := session.ExecuteQuery(fmt.Sprintf("SELECT * FROM `%s`", table))
+		if err == nil && len(rows) > 0 {
+			found = append(found, table)
+			if DebugMode {
+				logInfo(fmt.Sprintf("BruteForce: Found table '%s'", table))
+			}
+		} else if DebugMode {
+			logWarn(fmt.Sprintf("BruteForce: Skipped table '%s': %v", table, err))
+		}
+	}
+	if len(found) == 0 {
+		return nil, fmt.Errorf("no common tables found")
+	}
+	return found, nil
 }
