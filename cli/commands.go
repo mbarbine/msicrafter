@@ -112,7 +112,11 @@ var TransformCommand = &cli.Command{
 			orig := c.String("original")
 			mod := c.String("modified")
 			output := c.String("output")
-			return core.GenerateTransform(orig, mod, output)
+			err := core.GenerateTransform(orig, mod, output)
+			if err == nil {
+				fmt.Printf("Transform (MST) created successfully at: %s\n", output)
+			}
+			return err
 		})
 	},
 }
@@ -182,7 +186,109 @@ var BackupCommand = &cli.Command{
 	},
 }
 
-// Commands is the consolidated slice of all CLI commands.
+// ApplyTransformCommand applies a transform file to an MSI database.
+var ApplyTransformCommand = &cli.Command{
+	Name:  "apply",
+	Usage: "Apply an MST transform file to an MSI database",
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "dry-run",
+			Usage: "Simulate applying the transform without committing changes",
+		},
+		&cli.BoolFlag{
+			Name:  "interactive",
+			Usage: "Ask for confirmation before each operation",
+		},
+	},
+	Action: func(c *cli.Context) error {
+		return core.SafeExecute("ApplyTransform", func() error {
+			if c.Args().Len() < 2 {
+				return fmt.Errorf("provide path to MST file and target MSI file")
+			}
+			mstPath := c.Args().Get(0)
+			msiPath := c.Args().Get(1)
+			dryRun := c.Bool("dry-run")
+			interactive := c.Bool("interactive")
+			return core.ApplyTransform(msiPath, mstPath, dryRun, interactive)
+		})
+	},
+}
+// ListRecordsCommand lists the records of a specified table in an MSI database.
+var ListRecordsCommand = &cli.Command{
+	Name:  "list-records",
+	Usage: "List all records of a given table in an MSI database",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "table",
+			Usage:    "Table name to list records from",
+			Required: true,
+		},
+	},
+
+	Action: func(c *cli.Context) error {
+		return SafeExecute("ListRecords", func() error {
+			if c.Args().Len() == 0 {
+				return fmt.Errorf("provide path to MSI file")
+			}
+			msiPath := c.Args().Get(0)
+			tableName := c.String("table")
+			rows, err := ReadTableRows(msiPath, tableName)
+			if err != nil {
+				return err
+			}
+			fmt.Println("Records in table", tableName)
+			fmt.Println(FormatRows(rows))
+			return nil
+		})
+	},
+}
+
+// EditRecordCommand edits a specific record in a given table by its row number.
+var EditRecordCommand = &cli.Command{
+	Name:  "edit-record",
+	Usage: "Edit a specific record from a table in an MSI database by record number",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "table",
+			Usage:    "Table name in which to edit a record",
+			Required: true,
+		},
+		&cli.IntFlag{
+			Name:     "record",
+			Usage:    "Record number (row number, starting at 1) to edit",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "set",
+			Usage:    "Set clause in the format field=value[,field2=value2...]",
+			Required: true,
+		},
+		&cli.BoolFlag{
+			Name:  "dry-run",
+			Usage: "Simulate the edit without committing changes",
+		},
+		&cli.BoolFlag{
+			Name:  "interactive",
+			Usage: "Ask for confirmation before applying the changes",
+		},
+	},
+	Action: func(c *cli.Context) error {
+		return core.SafeExecute("EditRecord", func() error {
+			if c.Args().Len() == 0 {
+				return fmt.Errorf("provide path to MSI file")
+			}
+			msiPath := c.Args().Get(0)
+			tableName := c.String("table")
+			recordNum := c.Int("record")
+			setClause := c.String("set")
+			dryRun := c.Bool("dry-run")
+			interactive := c.Bool("interactive")
+			return core.EditRecord(msiPath, tableName, recordNum, setClause, dryRun, interactive)
+		})
+	},
+}
+
+// Append the new command to the commands list.
 var Commands = []*cli.Command{
 	ListTablesCommand,
 	QueryCommand,
@@ -191,4 +297,7 @@ var Commands = []*cli.Command{
 	DiffCommand,
 	ExportCommand,
 	BackupCommand,
+	ApplyTransformCommand,
+	ListRecordsCommand,
+	EditRecordCommand, // <-- New record-level editing command.
 }

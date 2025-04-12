@@ -1,7 +1,31 @@
 # msicrafter
 
-“Retro-style MSI editing and transformation wizardry — right in your terminal.”
+Retro-powered MSI table editor & transform tool
 
+## Features
+
+- List MSI tables and records  
+- Execute SQL queries on MSI databases  
+- Edit tables and individual records interactively  
+- Generate and apply transforms (MST) based on MSI diffs  
+- Backup and export functionality  
+- Retro ANSI-style UI feedback with interactive prompts and progress spinners  
+- Dry-run mode for safe simulations  
+
+## Requirements
+
+- Windows OS (MSI operations require Windows Installer COM interfaces)  
+- Go 1.21 or later  
+
+## Installation
+
+Clone the repository and build the binary:
+
+```bash
+git clone https://github.com/yourusername/msicrafter.git
+cd msicrafter
+go mod tidy
+go build -o msicrafter.exe
 ## Key Capabilities
 
 | Capability          | Details                                                                 |
