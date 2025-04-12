@@ -18,16 +18,28 @@ type discoveredTable struct {
 	Source string
 }
 
+var UseNativeAPI bool = true // toggle native API usage
+
 // ListTables discovers and prints table names from an MSI file.
 func ListTables(msiPath string) error {
 	return SafeExecute("ListTables", func() error {
-		session, err := OpenMsiSession(msiPath, 0)
-		if err != nil {
-			return fmt.Errorf("failed to open MSI session: %v", err)
-		}
-		defer session.Close()
+		var results []discoveredTable
+		var err error
 
-		results, err := discoverTables(session)
+		if UseNativeAPI {
+			tableNames, nativeErr := NativeMsiQueryTables(msiPath)
+			if nativeErr == nil {
+				for _, name := range tableNames {
+					results = append(results, discoveredTable{Name: name, Source: "NativeAPI"})
+				}
+			} else {
+				logWarn(fmt.Sprintf("⚠ NativeMsiQueryTables failed: %v", nativeErr))
+				results, err = fallbackDiscoverTables(msiPath)
+			}
+		} else {
+			results, err = fallbackDiscoverTables(msiPath)
+		}
+
 		fmt.Println("📦 Tables in", msiPath)
 
 		if err != nil || len(results) == 0 {
@@ -64,6 +76,16 @@ func ListTables(msiPath string) error {
 		}
 		return nil
 	})
+}
+
+func fallbackDiscoverTables(msiPath string) ([]discoveredTable, error) {
+	session, err := OpenMsiSession(msiPath, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open MSI session: %v", err)
+	}
+	defer session.Close()
+
+	return discoverTables(session)
 }
 
 // tryListSystemTables queries the _Tables table for table names.
