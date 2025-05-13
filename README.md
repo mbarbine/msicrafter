@@ -39,7 +39,7 @@ go build -o msicrafter.exe
 | 🧯 Error Handling    | All actions wrapped with recoverable `try/catch`-like handlers/logging   |
 | 💾 Safe Save         | Confirm changes with prompt; optionally skip/abort per table             |
 | 🎨 Retro Output      | Colorful ASCII UI, pseudo-modal prompts, animated “Working…” displays    |
-
+```
 ## Folder Structure
 
 ```
