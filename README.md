@@ -1,7 +1,7 @@
 # msicrafter
 [![Go CI](https://github.com/mbarbine/msicrafter/actions/workflows/go.yml/badge.svg)](https://github.com/mbarbine/msicrafter/actions/workflows/go.yml)
 
-Retro-powered MSI table editor & transform tool
+CLI-Based MSI table editor & transform tool
 
 ## Features
 
