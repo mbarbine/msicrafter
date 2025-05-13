@@ -20,13 +20,18 @@ Retro-powered MSI table editor & transform tool
 
 ## Installation
 
-Clone the repository and build the binary:
+#### Clone the repository and build the binary:
 
-```bash
+```
 git clone https://github.com/yourusername/msicrafter.git
+
 cd msicrafter
+
 go mod tidy
+
 go build -o msicrafter.exe
+```
+
 ## Key Capabilities
 
 | Capability          | Details                                                                 |
@@ -40,7 +45,7 @@ go build -o msicrafter.exe
 | 🧯 Error Handling    | All actions wrapped with recoverable `try/catch`-like handlers/logging   |
 | 💾 Safe Save         | Confirm changes with prompt; optionally skip/abort per table             |
 | 🎨 Retro Output      | Colorful ASCII UI, pseudo-modal prompts, animated “Working…” displays    |
-```
+
 ## Folder Structure
 
 ```
