@@ -73,23 +73,40 @@ msicrafter/
 
 ## Example Usage
 
-```bash
-# View tables
+#### View tables
+
+```
 msicrafter tables ./MyApp.msi
+```
 
-# Query contents
+#### Query contents
+
+```
 msicrafter query ./MyApp.msi "SELECT * FROM Property"
+```
 
-# Edit
+#### Edit
+
+```
 msicrafter edit ./MyApp.msi --table Property --set ProductVersion=9.9.9
+```
 
-# Create transform (diff-based)
+#### Create transform (diff-based)
+
+```
 msicrafter transform --original original.msi --modified edited.msi --output patch.mst
+```
 
-# Export and zip
+#### Export and zip
+
+```
 msicrafter export ./MyApp.msi --format json --zip
+```
 
-# Compare two MSI files
+
+#### Compare two MSI files
+
+```
 msicrafter diff ./v1.msi ./v2.msi
 ```
 
@@ -108,20 +125,19 @@ msicrafter diff ./v1.msi ./v2.msi
 
 ## FEEDBACK 
 
-
-
-```
 ## Additional Steps
 
 ### Test
 
-Run these commands:
+#### Run these commands:
+
 ```
 go mod tidy
 go build -o msicrafter.exe
 ```
 
-Then execute:
+#### Then execute:
+
 ```
 ./msicrafter tables "C:\Path\To\Sample.msi"
 ```
@@ -134,9 +150,6 @@ Then execute:
 - Zip export before save
 - Structured logging + error recovery
 - Fun retro progress/status UI
-```
-
-
 
 ## REGRESSION
 
